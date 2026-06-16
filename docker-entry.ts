@@ -21,7 +21,8 @@ const app = new Hono()
 // ===== 配置 =====
 const MIMO_FREE_BASE_URL = (process.env.MIMO_FREE_BASE_URL || 'https://api.xiaomimimo.com').replace(/\/+$/, '')
 const BOOTSTRAP_URL = `${MIMO_FREE_BASE_URL}/api/free-ai/bootstrap`
-const CHAT_URL = `${MIMO_FREE_BASE_URL}/api/free-ai/openai/v1/chat/completions`
+const CHAT_BASE_URL = `${MIMO_FREE_BASE_URL}/api/free-ai/openai`
+const MIMO_SOURCE = 'mimocode-cli-free'
 const PORT = process.env.PORT || 4096
 
 // ===== JWT 状态管理 =====
@@ -120,7 +121,7 @@ async function wrappedFetch(url: string, init: RequestInit = {}): Promise<Respon
   
   const headers = new Headers(init.headers || {})
   headers.set('Authorization', `Bearer ${token}`)
-  headers.set('X-Mimo-Source', 'opencode')
+  headers.set('X-Mimo-Source', MIMO_SOURCE)
 
   let res = await fetch(url, { ...init, headers })
 
@@ -212,10 +213,16 @@ app.post('/v1/chat/completions', async (c) => {
     }
 
     // 转发请求到上游
-    const res = await wrappedFetch(CHAT_URL, {
+    const chatUrl = `${CHAT_BASE_URL}/chat`
+    const res = await wrappedFetch(chatUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify({
+        model: body.model || 'mimo-auto',
+        messages: body.messages,
+        stream: isStream,
+        max_tokens: body.max_tokens ?? 4096
+      })
     })
 
     if (!res.ok) {

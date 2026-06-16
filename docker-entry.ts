@@ -166,13 +166,11 @@ app.post("/v1/chat/completions", async (c) => {
   return c.json(data)
 })
 
-export default app
-
-// ── 启动（兼容 Render 和 Bun.serve）─────────────────────────
-// Render 使用 export default { port, fetch }
-// 本地可以用 Bun.serve
-if (import.meta.main) {
-  const server = Bun.serve({ fetch: app.fetch, port: PORT, hostname: "0.0.0.0" })
-  console.log(`\n  MiMo 2API: http://localhost:${server.port}/v1/chat/completions`)
-  console.log(`  Health:    http://localhost:${server.port}/\n`)
+// ── 导出（Render Bun 运行时格式）─────────────────────────
+export default {
+  port: PORT,
+  fetch: app.fetch,
 }
+
+console.log(`\n  MiMo 2API: http://localhost:${PORT}/v1/chat/completions`)
+console.log(`  Health:    http://localhost:${PORT}/\n`)

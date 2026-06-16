@@ -1,0 +1,10 @@
+# 排除不需要打包进镜像的文件
+node_modules
+dist
+*.log
+.git
+.env
+deno-version
+docker
+README.md
+PROJECT_ANALYSIS.md

@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: mimo-2api
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: MIMO_FREE_BASE_URL
+        value: https://api.xiaomimimo.com

@@ -13,15 +13,15 @@
 
 import { Hono } from 'hono'
 import { stream } from 'hono/streaming'
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { hostname, arch, platform } from 'node:os'
 
 const app = new Hono()
 
 // ===== 配置 =====
-const MIMO_FREE_BASE_URL = process.env.MIMO_FREE_BASE_URL || 'https://api.xiaomimimo.com'
-const BOOTSTRAP_URL = `${MIMO_FREE_BASE_URL}/v1/agent/bootstrap`
-const CHAT_URL = `${MIMO_FREE_BASE_URL}/v1/agent/chat`
+const MIMO_FREE_BASE_URL = (process.env.MIMO_FREE_BASE_URL || 'https://api.xiaomimimo.com').replace(/\/+$/, '')
+const BOOTSTRAP_URL = `${MIMO_FREE_BASE_URL}/api/free-ai/bootstrap`
+const CHAT_URL = `${MIMO_FREE_BASE_URL}/api/free-ai/openai/v1/chat/completions`
 const PORT = process.env.PORT || 4096
 
 // ===== JWT 状态管理 =====
@@ -55,7 +55,6 @@ async function fetchJwt(): Promise<string> {
 
   fetchingPromise = (async () => {
     const fingerprint = getFingerprint()
-    const deviceId = randomBytes(16).toString('hex')
     
     let attempt = 0
     const maxAttempts = 3
@@ -67,9 +66,7 @@ async function fetchJwt(): Promise<string> {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            fingerprint,
-            deviceId,
-            platform: 'web'
+            client: fingerprint
           })
         })
 

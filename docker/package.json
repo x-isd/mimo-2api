@@ -1,0 +1,8 @@
+{
+  "name": "v2-micode2api-docker",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "hono": "4.10.7"
+  }
+}

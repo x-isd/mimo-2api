@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "jsx": "preserve",
+    "jsxImportSource": "@opentui/solid",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": [],
+    "noUncheckedIndexedAccess": false,
+    "customConditions": ["browser"],
+    "paths": {
+      "@/*": ["./lib/opencode-lite/*"],
+      "@tui/*": ["./lib/opencode-lite/cli/cmd/tui/*"],
+      "@test/*": ["./test/*"]
+    }
+  },
+  "include": ["entry.ts", "lib/opencode-lite/**/*.ts"]
+}

@@ -1,0 +1,60 @@
+{
+    "name": "v2-micode2api",
+    "type": "module",
+    "private": true,
+    "scripts": {
+        "dev": "bun run --conditions=browser entry.ts",
+    "build": "bun build --target=bun --outfile=dist/bundle.js --external=\"@ai-sdk/anthropic\" --external=\"@ai-sdk/groq\" --external=\"@ai-sdk/mistral\" --external=\"@ai-sdk/openai\" --external=\"@ai-sdk/amazon-bedrock\" --external=\"@ai-sdk/azure\" --external=\"@ai-sdk/google\" --external=\"@ai-sdk/google-vertex\" --external=\"@ai-sdk/xai\" --external=\"@ai-sdk/deepinfra\" --external=\"@ai-sdk/cerebras\" --external=\"@ai-sdk/cohere\" --external=\"@ai-sdk/togetherai\" --external=\"@ai-sdk/perplexity\" --external=\"@ai-sdk/vercel\" --external=\"@ai-sdk/alibaba\" --external=\"@openrouter/ai-sdk-provider\" --external=\"venice-ai-sdk-provider\" --external=\"@aws-sdk/credential-providers\" --external=\"google-auth-library\" --external=\"ai-gateway-provider\" --external=\"gitlab-ai-provider\" --external=\"tree-sitter-bash\" --external=\"tree-sitter-powershell\" --external=\"web-tree-sitter\" --external=\"@opentelemetry/exporter-trace-otlp-http\" --external=\"@opentelemetry/sdk-trace-base\" --external=\"@opentelemetry/sdk-trace-node\" --external=\"@opentelemetry/context-async-hooks\" entry.ts",
+    "start": "bun --smol dist/bundle.js",
+        "postinstall": "node -e \"try{require('fs').symlinkSync(require('path').resolve('lib/plugin'),'node_modules/@mimo-ai/plugin','junction')}catch(e){}\""
+    },
+    "imports": {
+        "#db": {
+            "bun": "./lib/opencode-lite/storage/db.bun.ts",
+            "node": "./lib/opencode-lite/storage/db.node.ts",
+            "default": "./lib/opencode-lite/storage/db.bun.ts"
+        },
+        "#pty": {
+            "bun": "./lib/opencode-lite/pty/pty.bun.ts",
+            "node": "./lib/opencode-lite/pty/pty.node.ts",
+            "default": "./lib/opencode-lite/pty/pty.bun.ts"
+        },
+        "#hono": {
+            "bun": "./lib/opencode-lite/server/adapter.bun.ts",
+            "node": "./lib/opencode-lite/server/adapter.node.ts",
+            "default": "./lib/opencode-lite/server/adapter.bun.ts"
+        }
+    },
+    "dependencies": {
+        "@ai-sdk/anthropic": "3.0.71",
+        "@ai-sdk/groq": "3.0.31",
+        "@ai-sdk/mistral": "3.0.27",
+        "@ai-sdk/openai": "3.0.53",
+        "@ai-sdk/openai-compatible": "2.0.41",
+        "@ai-sdk/provider": "3.0.8",
+        "@ai-sdk/provider-utils": "4.0.23",
+        "@effect/platform-node": "4.0.0-beta.48",
+        "@hono/node-server": "1.19.11",
+        "@hono/standard-validator": "^0.2.2",
+        "@mimo-ai/plugin": "file:./lib/plugin",
+        "@mimo-ai/script": "file:./lib/script",
+        "@mimo-ai/sdk": "file:./lib/sdk",
+        "@mimo-ai/shared": "file:./lib/shared",
+        "@openauthjs/openauth": "0.0.0-20250322224806",
+        "@opentelemetry/api": "1.9.0",
+        "ai": "6.0.168",
+        "bun-pty": "0.4.8",
+        "cross-spawn": "^7.0.6",
+        "decimal.js": "^10.6.0",
+        "drizzle-orm": "1.0.0-beta.19-d95b7a4",
+        "effect": "4.0.0-beta.48",
+        "gitlab-ai-provider": "6.6.0",
+        "hono": "4.10.7",
+        "partial-json": "0.1.7",
+        "remeda": "2.26.0",
+        "semver": "^7.6.3",
+        "ulid": "3.0.1",
+        "xdg-basedir": "5.1.0",
+        "zod": "4.1.8"
+    }
+}

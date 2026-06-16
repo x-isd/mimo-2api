@@ -1,0 +1,24 @@
+# Render Blueprint — v2-micode2api Docker 部署
+# 文档：https://render.com/docs/blueprint-spec
+#
+# 两种用法：
+#   方式一（推荐）：直接用 docker/ 子目录部署，镜像最小
+#     - Render 创建 Web Service → 选仓库 → rootDir 填 docker
+#   方式二：本文件放在仓库根目录，Render 自动识别（rootDir 指向 docker）
+
+services:
+  - type: web
+    name: mimo-2api
+    runtime: docker
+    plan: free              # 免费套餐（512MB 内存）
+    region: singapore       # 新加坡（离中国近）；可选 oregon / frankfurt 等
+    branch: main
+    rootDir: docker         # ★ 关键：指向 docker/ 子目录
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /      # Render 用这个路径检查存活
+    autoDeploy: true        # push 即重新部署
+    envVars:
+      - key: PORT
+        value: "4096"
+      - key: MIMO_FREE_BASE_URL
+        value: https://api.xiaomimimo.com

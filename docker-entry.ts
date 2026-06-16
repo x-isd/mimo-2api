@@ -1,286 +1,178 @@
+#!/usr/bin/env bun
 /**
- * Docker/Render 部署入口
+ * v2-micode2api — 极简入口（Docker/Render 版本）
+ *
+ * 仅依赖：hono + 标准库
+ * 跳过：effect、ai-sdk、SQLite、Session、LSP、Plugin 等全部 opencode 基建
  * 
- * 基于 minimal-entry.ts 的极简实现，只依赖 hono + Node.js 内置模块
- * 
- * 核心功能：
- * 1. JWT 获取与保活（单例 + 5分钟提前续期 + 40分钟后台续期）
- * 2. wrappedFetch：自动注入 JWT + X-Mimo-Source，处理 401/403 重试
- * 3. /v1/chat/completions：真实流式转发（透传上游 SSE）
- * 4. /v1/models：返回固定模型列表
- * 5. /debug：调试端点，显示 JWT 状态和运行时信息
+ * 此版本直接复制自原项目 minimal-entry.ts，只修改了启动方式以兼容 Render
  */
+import { Hono } from "hono"
+import crypto from "crypto"
+import os from "os"
 
-import { Hono } from 'hono'
-import { stream } from 'hono/streaming'
-import { createHash } from 'node:crypto'
-import { hostname, arch, platform } from 'node:os'
+const PORT = parseInt(process.env.PORT || "4096")
+const BASE_URL = (process.env.MIMO_FREE_BASE_URL || "https://api.xiaomimimo.com").replace(/\/+$/, "")
+const BOOTSTRAP_URL = `${BASE_URL}/api/free-ai/bootstrap`
+const CHAT_URL = `${BASE_URL}/api/free-ai/openai/chat`
+const MIMO_SOURCE = "mimocode-cli-free"
 
-const app = new Hono()
-
-// ===== 配置 =====
-const MIMO_FREE_BASE_URL = (process.env.MIMO_FREE_BASE_URL || 'https://api.xiaomimimo.com').replace(/\/+$/, '')
-const BOOTSTRAP_URL = `${MIMO_FREE_BASE_URL}/api/free-ai/bootstrap`
-const CHAT_BASE_URL = `${MIMO_FREE_BASE_URL}/api/free-ai/openai`
-const MIMO_SOURCE = 'mimocode-cli-free'
-const PORT = process.env.PORT || 4096
-
-// ===== JWT 状态管理 =====
+// ── JWT 管理 ────────────────────────────────────────────────
 let jwt: string | null = null
-let jwtExpire = 0
-let fetchingPromise: Promise<string> | null = null
+let jwtExp = 0
+let jwtPending: Promise<string> | null = null
 
-/**
- * 生成设备指纹（基于主机名 + 架构 + 时间戳）
- */
 function getFingerprint(): string {
-  const raw = `${hostname()}-${arch()}-${platform()}-${Date.now()}`
-  return createHash('sha256').update(raw).digest('hex').slice(0, 32)
+  return crypto.createHash("sha256").update(
+    [os.hostname(), process.platform, process.arch,
+      os.cpus()[0]?.model ?? "",
+      (() => { try { return os.userInfo().username } catch { return "" } })(),
+    ].join("|")
+  ).digest("hex")
 }
 
-/**
- * 获取 JWT（带单例保护 + 指数退避重试）
- */
+function parseExp(token: string): number {
+  try {
+    const p = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString())
+    return typeof p.exp === "number" ? p.exp * 1000 : Date.now() + 50 * 60_000
+  } catch { return Date.now() + 50 * 60_000 }
+}
+
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+
 async function fetchJwt(): Promise<string> {
-  const now = Date.now()
-  
-  // 如果 JWT 仍有效（距离过期 > 5 分钟），直接返回
-  if (jwt && jwtExpire - now > 5 * 60 * 1000) {
-    return jwt
-  }
+  if (jwt && jwtExp - Date.now() > 300_000) return jwt
+  if (jwtPending) return jwtPending
 
-  // 单例保护：如果正在获取，复用 Promise
-  if (fetchingPromise) {
-    return fetchingPromise
-  }
-
-  fetchingPromise = (async () => {
-    const fingerprint = getFingerprint()
-    
-    let attempt = 0
-    const maxAttempts = 3
-
-    while (attempt < maxAttempts) {
-      attempt++
+  jwtPending = (async () => {
+    for (let delay = 2000; ; delay = Math.min(delay * 2, 60_000)) {
       try {
         const res = await fetch(BOOTSTRAP_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            client: fingerprint
-          })
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ client: getFingerprint() }),
         })
-
-        if (!res.ok) {
-          throw new Error(`Bootstrap failed: ${res.status} ${res.statusText}`)
-        }
-
-        const data = await res.json() as any
-        if (!data?.jwt) {
-          throw new Error('No JWT in response')
-        }
-
-        jwt = data.jwt
-        jwtExpire = Date.now() + 50 * 60 * 1000 // 假设 JWT 有效期 50 分钟
-        console.log(`[JWT] 获取成功，过期时间: ${new Date(jwtExpire).toISOString()}`)
-        return jwt
-      } catch (err: any) {
-        console.error(`[JWT] 获取失败 (attempt ${attempt}/${maxAttempts}):`, err.message)
-        if (attempt < maxAttempts) {
-          const backoff = Math.pow(2, attempt) * 1000
-          console.log(`[JWT] ${backoff}ms 后重试...`)
-          await new Promise(resolve => setTimeout(resolve, backoff))
-        }
+        if (res.status === 429) { console.warn("[jwt]", `429, retry in ${delay}ms`); await sleep(delay); continue }
+        if (!res.ok) { console.warn("[jwt]", res.status); await sleep(delay); continue }
+        const d = await res.json() as { jwt?: string }
+        if (!d.jwt) { await sleep(delay); continue }
+        jwt = d.jwt; jwtExp = parseExp(d.jwt)
+        return d.jwt
+      } catch (e) {
+        console.warn("[jwt] error:", String(e).slice(0, 80))
+        await sleep(delay)
       }
     }
+  })().finally(() => { jwtPending = null })
 
-    throw new Error('Failed to fetch JWT after retries')
+  return jwtPending
+}
+
+// 首次获取 + 后台每 40 分钟刷新
+fetchJwt().then(t => console.log("[jwt]", t ? "ready" : "failed"))
+setInterval(() => { fetchJwt().catch(() => {}) }, 40 * 60_000)
+
+function wrappedFetch(url: string, init?: RequestInit): Promise<Response> {
+  return (async () => {
+    const token = await fetchJwt()
+    const headers = new Headers(init?.headers)
+    headers.set("authorization", `Bearer ${token}`)
+    headers.set("x-mimo-source", MIMO_SOURCE)
+    let res = await fetch(url, { ...init, headers })
+    if (res.status === 401 || res.status === 403) {
+      jwt = null; const nt = await fetchJwt()
+      headers.set("authorization", `Bearer ${nt}`)
+      res = await fetch(url, { ...init, headers })
+    }
+    return res
   })()
-
-  try {
-    const result = await fetchingPromise
-    return result
-  } finally {
-    fetchingPromise = null
-  }
 }
 
-/**
- * 后台 JWT 续期任务（每 40 分钟触发一次）
- */
-setInterval(() => {
-  console.log('[JWT] 后台续期任务触发')
-  fetchJwt().catch(err => console.error('[JWT] 后台续期失败:', err))
-}, 40 * 60 * 1000)
+// ── Hono 服务器 ──────────────────────────────────────────────
+const app = new Hono()
 
-/**
- * 包装的 fetch：自动注入 JWT + X-Mimo-Source，处理 401/403 重试
- */
-async function wrappedFetch(url: string, init: RequestInit = {}): Promise<Response> {
-  const token = await fetchJwt()
-  
-  const headers = new Headers(init.headers || {})
-  headers.set('Authorization', `Bearer ${token}`)
-  headers.set('X-Mimo-Source', MIMO_SOURCE)
+app.get("/", (c) => c.text("MiMo 2API running\n"))
 
-  let res = await fetch(url, { ...init, headers })
-
-  // 如果遇到 401/403，清空 JWT 并重试一次
-  if (res.status === 401 || res.status === 403) {
-    console.warn(`[wrappedFetch] 收到 ${res.status}，清空 JWT 并重试`)
-    jwt = null
-    jwtExpire = 0
-    const newToken = await fetchJwt()
-    headers.set('Authorization', `Bearer ${newToken}`)
-    res = await fetch(url, { ...init, headers })
-  }
-
-  return res
-}
-
-/**
- * 等待 JWT 就绪的辅助函数（用于聊天请求前的预检）
- */
-async function waitForJwt(): Promise<boolean> {
-  try {
-    await fetchJwt()
-    return true
-  } catch {
-    return false
-  }
-}
-
-// ===== 路由 =====
-
-/**
- * 健康检查（Render 需要）
- */
-app.get('/', (c) => c.json({ status: 'ok', service: 'v2-micode2api-docker' }))
-
-/**
- * 调试端点：显示 JWT 状态和运行时信息
- */
-app.get('/debug', (c) => {
+// 调试端点
+app.get("/debug", (c) => {
   const now = Date.now()
   return c.json({
     jwt_ready: !!jwt,
-    jwt_cached: !!jwt,
-    jwt_expire: jwt ? new Date(jwtExpire).toISOString() : null,
-    jwt_remain_ms: jwt ? Math.max(0, jwtExpire - now) : 0,
-    runtime: {
-      bun_version: process.versions.bun || 'unknown',
-      node_version: process.version,
-      platform: process.platform,
-      arch: process.arch,
-      hostname: hostname()
-    },
+    jwt_expire: jwt ? new Date(jwtExp).toISOString() : null,
+    jwt_remain_ms: jwt ? Math.max(0, jwtExp - now) : 0,
+    fingerprint: getFingerprint(),
     config: {
-      mimo_base_url: MIMO_FREE_BASE_URL,
+      base_url: BASE_URL,
+      bootstrap_url: BOOTSTRAP_URL,
+      chat_url: CHAT_URL,
+      mimo_source: MIMO_SOURCE,
       port: PORT
     }
   })
 })
 
-/**
- * 模型列表端点
- */
-app.get('/v1/models', (c) => {
+// 模型列表
+app.get("/v1/models", (c) => {
   return c.json({
-    object: 'list',
+    object: "list",
     data: [
       {
-        id: 'mimo-auto',
-        object: 'model',
+        id: "mimo-auto",
+        object: "model",
         created: Math.floor(Date.now() / 1000),
-        owned_by: 'xiaomi'
+        owned_by: "xiaomi"
       }
     ]
   })
 })
 
-/**
- * 聊天补全端点（流式 + 非流式）
- */
-app.post('/v1/chat/completions', async (c) => {
-  try {
-    const body = await c.req.json()
-    const isStream = body.stream ?? false
+app.post("/v1/chat/completions", async (c) => {
+  const body = await c.req.json()
+  const isStream = body.stream === true
+  const chatUrl = `${CHAT_URL}/chat`
 
-    // 确保 JWT 已就绪
-    const ready = await waitForJwt()
-    if (!ready) {
-      return c.json({ error: { code: '500', message: 'JWT not ready', type: 'internal_error' } }, 500)
-    }
+  console.log("[chat] request:", { url: chatUrl, model: body.model || "mimo-auto", stream: isStream })
 
-    // 转发请求到上游
-    const chatUrl = `${CHAT_BASE_URL}/chat`
-    const res = await wrappedFetch(chatUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: body.model || 'mimo-auto',
-        messages: body.messages,
-        stream: isStream,
-        max_tokens: body.max_tokens ?? 4096
-      })
-    })
+  const mimoRes = await wrappedFetch(chatUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      model: body.model || "mimo-auto",
+      messages: body.messages,
+      stream: isStream,
+      max_tokens: body.max_tokens ?? 4096,
+    }),
+  })
 
-    if (!res.ok) {
-      const text = await res.text()
-      console.error(`[chat] 上游返回错误: ${res.status} ${text}`)
-      return c.json(
-        { error: { code: String(res.status), message: text || res.statusText, type: 'upstream_error' } },
-        res.status
-      )
-    }
+  console.log("[chat] response:", mimoRes.status, mimoRes.statusText)
 
-    if (isStream) {
-      // 流式：透传上游 SSE
-      return stream(c, async (writer) => {
-        const reader = res.body?.getReader()
-        if (!reader) {
-          await writer.write('data: {"error":"No response body"}\n\n')
-          return
-        }
-
-        const decoder = new TextDecoder()
-        try {
-          while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
-            const chunk = decoder.decode(value, { stream: true })
-            await writer.write(chunk)
-          }
-        } catch (err: any) {
-          console.error('[chat] 流式传输错误:', err)
-          await writer.write(`data: {"error":"${err.message}"}\n\n`)
-        }
-      })
-    } else {
-      // 非流式：直接返回 JSON
-      const data = await res.json()
-      return c.json(data)
-    }
-  } catch (err: any) {
-    console.error('[chat] 请求处理错误:', err)
-    return c.json(
-      { error: { code: '500', message: err.message, type: 'internal_error' } },
-      500
-    )
+  if (!mimoRes.ok) {
+    const text = await mimoRes.text().catch(() => "unknown error")
+    console.error("[chat] error body:", text)
+    return c.json({ error: { message: text, status: mimoRes.status } }, mimoRes.status as any)
   }
+
+  if (isStream) {
+    return c.newResponse(mimoRes.body, {
+      headers: {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+        connection: "keep-alive",
+      },
+    })
+  }
+
+  const data = await mimoRes.json()
+  return c.json(data)
 })
 
-// ===== 启动服务 =====
-console.log(`[启动] v2-micode2api-docker on port ${PORT}`)
-console.log(`[配置] MIMO_FREE_BASE_URL=${MIMO_FREE_BASE_URL}`)
+export default app
 
-// 预热 JWT（后台启动，不阻塞服务启动）
-fetchJwt().then(
-  () => console.log('[启动] JWT 预热成功'),
-  (err) => console.error('[启动] JWT 预热失败:', err)
-)
-
-export default {
-  port: PORT,
-  fetch: app.fetch
+// ── 启动（兼容 Render 和 Bun.serve）─────────────────────────
+// Render 使用 export default { port, fetch }
+// 本地可以用 Bun.serve
+if (import.meta.main) {
+  const server = Bun.serve({ fetch: app.fetch, port: PORT, hostname: "0.0.0.0" })
+  console.log(`\n  MiMo 2API: http://localhost:${server.port}/v1/chat/completions`)
+  console.log(`  Health:    http://localhost:${server.port}/\n`)
 }

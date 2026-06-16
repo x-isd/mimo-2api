@@ -188,10 +188,10 @@ app.get('/v1/models', (c) => {
     object: 'list',
     data: [
       {
-        id: 'gpt-4o-mini',
+        id: 'mimo-auto',
         object: 'model',
-        created: 1686935002,
-        owned_by: 'openai'
+        created: Math.floor(Date.now() / 1000),
+        owned_by: 'xiaomi'
       }
     ]
   })
